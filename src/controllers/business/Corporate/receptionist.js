@@ -9,7 +9,7 @@ const ServicesModel = require("../../../models/Services.model");
 const { Op } = require("sequelize");
 let moment = require("moment");
 const e = require("express");
-
+const { emitUpdated } = require("../../../../config/socket");
 exports.createReceptionist = async (req, res, next) => {
   try {
     let {
@@ -655,11 +655,12 @@ exports.forwardCustomerForNextService = async (req, res, next) => {
             corporate_id,
             service_id,
             ticket_no,
-            ticket_type: previousOrderOfUser.ticket_type, ///this is the issue
+            ticket_type: previousOrderOfUser.ticket_type, ///this was the issue
             status: "waiting",
             in_waiting: new Date(),
           });
           if (newOrderInNextService) {
+            emitUpdated();
             res.status(200).json({
               status: 200,
               message: "Forwarded successfully",
@@ -707,6 +708,7 @@ exports.clearOrder = async (req, res, next) => {
         }
       );
       if (updateOrder) {
+        emitUpdated();
         res.status(200).json({
           status: 200,
           message: "Order cleared successfully",
@@ -735,77 +737,61 @@ exports.clearOrder = async (req, res, next) => {
 exports.currentOrder = async (req, res, next) => {
   try {
     let { corporate_id, department_id } = req.body;
-
     let current_order = await Corporate_OrdersModel.findOne({
       where: {
         corporate_id,
         department_id,
-        status: { [Op.eq]: "waiting" },
+        status: { [Op.eq]: "working" },
+        ticket_type: 1,
       },
     });
     if (current_order) {
-      if (current_order.ticket_type == 1) {
-        let assignEmployeeManually = await assignEmployee(current_order);
-        if (assignEmployeeManually == 0) {
-          res.status(200).json({
-            status: 200,
-            current_order: {},
-          });
-        } else if (assignEmployeeManually == 1) {
-          UserModel.hasOne(Corporate_OrdersModel, { foreignKey: "user_id" });
-          Corporate_OrdersModel.belongsTo(UserModel, { foreignKey: "user_id" });
-          ServicesModel.hasOne(Corporate_OrdersModel, {
-            foreignKey: "service_id",
-          });
-          Corporate_OrdersModel.belongsTo(ServicesModel, {
-            foreignKey: "service_id",
-          });
-          EmployeeModel.hasOne(Corporate_OrdersModel, {
-            foreignKey: "employee_id",
-          });
-          Corporate_OrdersModel.belongsTo(EmployeeModel, {
-            foreignKey: "employee_id",
-          });
-          UserModel.hasOne(EmployeeModel, { foreignKey: "user_id" });
-          EmployeeModel.belongsTo(UserModel, { foreignKey: "user_id" });
-          let order = await Corporate_OrdersModel.findOne({
-            where: {
-              id: current_order.id,
-            },
+      UserModel.hasOne(Corporate_OrdersModel, { foreignKey: "user_id" });
+      Corporate_OrdersModel.belongsTo(UserModel, { foreignKey: "user_id" });
+      ServicesModel.hasOne(Corporate_OrdersModel, {
+        foreignKey: "service_id",
+      });
+      Corporate_OrdersModel.belongsTo(ServicesModel, {
+        foreignKey: "service_id",
+      });
+      EmployeeModel.hasOne(Corporate_OrdersModel, {
+        foreignKey: "employee_id",
+      });
+      Corporate_OrdersModel.belongsTo(EmployeeModel, {
+        foreignKey: "employee_id",
+      });
+      UserModel.hasOne(EmployeeModel, { foreignKey: "user_id" });
+      EmployeeModel.belongsTo(UserModel, { foreignKey: "user_id" });
+      let order = await Corporate_OrdersModel.findOne({
+        where: {
+          id: current_order.id,
+        },
+        include: [
+          {
+            model: ServicesModel,
+          },
+          {
+            model: UserModel,
+          },
+          {
+            model: EmployeeModel,
             include: [
-              {
-                model: ServicesModel,
-              },
               {
                 model: UserModel,
               },
-              {
-                model: EmployeeModel,
-                include: [
-                  {
-                    model: UserModel,
-                  },
-                ],
-              },
             ],
-          });
-          console.log(order);
-          res.status(200).json({
-            status: 200,
-            current_order: order,
-          });
-        } else if (assignEmployeeManually == 2) {
-          res.status(200).json({
-            status: 400,
-            message: "Error while manual ticket assigning",
-          });
-        }
-      } else {
-        res.status(200).json({
-          status: 200,
-          current_order: {},
-        });
-      }
+          },
+        ],
+      });
+      console.log(order);
+      res.status(200).json({
+        status: 200,
+        current_order: order,
+      });
+      // res.status(200).json({
+      //   status: 200,
+      //   current_order: current_order,
+      // });
     } else {
       res.status(200).json({
         status: 200,
@@ -820,6 +806,92 @@ exports.currentOrder = async (req, res, next) => {
       error: err.message,
     });
   }
+  // try {
+  //   let { corporate_id, department_id } = req.body;
+  //   let current_order = await Corporate_OrdersModel.findOne({
+  //     where: {
+  //       corporate_id,
+  //       department_id,
+  //       status: { [Op.eq]: "waiting" },
+  //     },
+  //   });
+  //   if (current_order) {
+  //     if (current_order.ticket_type === 1) {
+  //       let assignEmployeeManually = await assignEmployee(current_order);
+  //       if (assignEmployeeManually == 0) {
+  //         res.status(200).json({
+  //           status: 200,
+  //           current_order: {},
+  //         });
+  //       } else if (assignEmployeeManually == 1) {
+  //         UserModel.hasOne(Corporate_OrdersModel, { foreignKey: "user_id" });
+  //         Corporate_OrdersModel.belongsTo(UserModel, { foreignKey: "user_id" });
+  //         ServicesModel.hasOne(Corporate_OrdersModel, {
+  //           foreignKey: "service_id",
+  //         });
+  //         Corporate_OrdersModel.belongsTo(ServicesModel, {
+  //           foreignKey: "service_id",
+  //         });
+  //         EmployeeModel.hasOne(Corporate_OrdersModel, {
+  //           foreignKey: "employee_id",
+  //         });
+  //         Corporate_OrdersModel.belongsTo(EmployeeModel, {
+  //           foreignKey: "employee_id",
+  //         });
+  //         UserModel.hasOne(EmployeeModel, { foreignKey: "user_id" });
+  //         EmployeeModel.belongsTo(UserModel, { foreignKey: "user_id" });
+  //         let order = await Corporate_OrdersModel.findOne({
+  //           where: {
+  //             id: current_order.id,
+  //           },
+  //           include: [
+  //             {
+  //               model: ServicesModel,
+  //             },
+  //             {
+  //               model: UserModel,
+  //             },
+  //             {
+  //               model: EmployeeModel,
+  //               include: [
+  //                 {
+  //                   model: UserModel,
+  //                 },
+  //               ],
+  //             },
+  //           ],
+  //         });
+  //         console.log(order);
+  //         res.status(200).json({
+  //           status: 200,
+  //           current_order: order,
+  //         });
+  //       } else if (assignEmployeeManually == 2) {
+  //         res.status(200).json({
+  //           status: 400,
+  //           message: "Error while manual ticket assigning",
+  //         });
+  //       }
+  //     } else {
+  //       res.status(200).json({
+  //         status: 200,
+  //         current_order: {},
+  //       });
+  //     }
+  //   } else {
+  //     res.status(200).json({
+  //       status: 200,
+  //       current_order: {},
+  //     });
+  //   }
+  // } catch (err) {
+  //   next(err);
+  //   res.status(200).json({
+  //     status: 400,
+  //     message: "Error while processing",
+  //     error: err.message,
+  //   });
+  // }
 };
 
 // -------------------------- Utility functions ----------------------

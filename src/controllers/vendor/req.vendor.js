@@ -99,9 +99,11 @@ exports.registerVendor = async (req, res, next) => {
             package_duration: "6",
             package_start: new Date(),
             package_end: new Date(),
-            status: "Pending",
+            // status: "Pending",
+            status: 0,
             user_id: user.id,
           });
+
           res.status(200).json({
             status: 200,
             message: "Business Registered Successfully",

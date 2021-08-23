@@ -13,6 +13,8 @@ let moment = require("moment");
 const ServicesModel = require("../../../models/Services.model");
 const InsuranceModel = require("../../../models/Insurance.model");
 const EmployeeModel = require("../../../models/Employee.model");
+// const io = require("../../../../config/socket");
+const userForSocket = require("../../../middlewares/userForSocket");
 
 exports.DemoExisting = async (req, res) => {
   let record = await Corporate_Panel_Orders.findAll({
@@ -285,7 +287,6 @@ exports.checkIfCustomerExistsInQueue = async (req, res, next) => {
     order: [["createdAt", "DESC"]],
     raw: true,
   });
-
   let onTop = await Corporate_Panel_Orders.findAll({
     where: {
       status: "waiting",
@@ -295,11 +296,9 @@ exports.checkIfCustomerExistsInQueue = async (req, res, next) => {
     order: [["createdAt", "ASC"]],
     raw: true,
   });
-
   if (record.length > 0) {
     if (record[0].employee_id == null && onTop[0].id === record[0].id) {
       let service_id = record[0].service_id;
-      console.log(service_id, "this");
       if (service_id) {
         let employees = await EmployeeModel.findAll({
           limit: 1,
@@ -309,7 +308,6 @@ exports.checkIfCustomerExistsInQueue = async (req, res, next) => {
           },
           raw: true,
         });
-        //   console.log("Employee free", employees);
         if (employees.length > 0) {
           let updatedEmployee = await EmployeeModel.update(
             { status: 1 },
@@ -350,7 +348,7 @@ exports.checkIfCustomerExistsInQueue = async (req, res, next) => {
           }
         } else {
           let estimated_time = await estimatedTime(record[0], req.user);
-          console.log("-------------->");
+          console.log("1st-------------->");
           res.status(200).json({
             status: 200,
             order: record[0],
@@ -366,7 +364,6 @@ exports.checkIfCustomerExistsInQueue = async (req, res, next) => {
     } else if (record[0].employee_id != null) {
       UserModel.hasOne(EmployeeModel, { foreignKey: "user_id" });
       EmployeeModel.belongsTo(UserModel, { foreignKey: "user_id" });
-
       let employee = await EmployeeModel.findOne({
         where: {
           id: record[0].employee_id,
@@ -393,7 +390,7 @@ exports.checkIfCustomerExistsInQueue = async (req, res, next) => {
       }
     } else {
       let estimated_time = await estimatedTime(record[0], req.user);
-      console.log("-------------->");
+      console.log("hah-------------->");
       res.status(200).json({
         status: 200,
         order: record[0],
@@ -775,7 +772,7 @@ let estimatedTime = async (record, user) => {
     },
     raw: true,
   });
-  console.log(all_records);
+  // console.log(all_records);
   if (all_records.length > 0) {
     let total_customers_in_queue = await Corporate_Panel_Orders.count({
       where: {
@@ -806,7 +803,144 @@ let estimatedTime = async (record, user) => {
 
     let service = await ServicesModel.findByPk(record.service_id);
     estimated_time = total_customers_in_queue * service.estimated_time;
-    console.log(estimated_time);
+    // console.log(estimated_time);
     return estimated_time;
+  }
+};
+let calculateEstimatedTime = async (token) => {
+  var user = await userForSocket(token);
+  // console.log(user);
+  //soc.to(user.id).emit("new-estimation", estimated_time);
+  //soc.emit("new-estimation", estimated_time);
+  let record = await Corporate_Panel_Orders.findAll({
+    limit: 1,
+    where: {
+      user_id: user.id,
+      createdAt: { [Op.gt]: new Date(moment().subtract(1, "days")) },
+    },
+    order: [["createdAt", "DESC"]],
+    raw: true,
+  });
+
+  let onTop = await Corporate_Panel_Orders.findAll({
+    where: {
+      status: "waiting",
+      createdAt: { [Op.gt]: new Date(moment().subtract(1, "days")) },
+      service_id: record[0].service_id,
+    },
+    order: [["createdAt", "ASC"]],
+    raw: true,
+  });
+
+  if (record.length > 0) {
+    if (record[0].employee_id == null && onTop[0].id === record[0].id) {
+      let service_id = record[0].service_id;
+      // console.log(service_id, "this");
+      if (service_id) {
+        let employees = await EmployeeModel.findAll({
+          limit: 1,
+          where: {
+            service_id: service_id,
+            status: 0,
+          },
+          raw: true,
+        });
+        //   console.log("Employee free", employees);
+        if (employees.length > 0) {
+          let updatedEmployee = await EmployeeModel.update(
+            { status: 1 },
+            { where: { id: employees[0].id } }
+          );
+          if (updatedEmployee) {
+            let updatedTicket = await Corporate_Panel_Orders.update(
+              {
+                status: "working",
+                in_working: new Date(),
+                employee_id: employees[0].id,
+              },
+              {
+                where: {
+                  id: record[0].id,
+                },
+              }
+            );
+            if (updatedTicket) {
+              res.status(200).json({
+                status: 200,
+                order: updatedTicket,
+                employee: employees[0].name,
+              });
+            } else {
+              res.status(200).json({
+                status: 200,
+                order: record[0],
+                employee: null,
+              });
+            }
+          } else {
+            res.status(200).json({
+              status: 200,
+              order: record[0],
+              employee: null,
+            });
+          }
+        } else {
+          let estimated_time = await estimatedTime(record[0], req.user);
+          console.log("1st-------------->");
+          res.status(200).json({
+            status: 200,
+            order: record[0],
+            estimated_time,
+          });
+        }
+      } else {
+        res.status(200).json({
+          status: 400,
+          message: "No Service Id found",
+        });
+      }
+    } else if (record[0].employee_id != null) {
+      UserModel.hasOne(EmployeeModel, { foreignKey: "user_id" });
+      EmployeeModel.belongsTo(UserModel, { foreignKey: "user_id" });
+
+      let employee = await EmployeeModel.findOne({
+        where: {
+          id: record[0].employee_id,
+        },
+        include: [
+          {
+            model: UserModel,
+          },
+        ],
+        raw: true,
+      });
+      if (employee) {
+        res.status(200).json({
+          status: 200,
+          order: record[0],
+          employee: employee["user.name"],
+        });
+      } else {
+        res.status(200).json({
+          status: 200,
+          order: null,
+          employee: [],
+        });
+      }
+    } else {
+      let estimated_time = await estimatedTime(record[0], req.user);
+      console.log("hah-------------->");
+      res.status(200).json({
+        status: 200,
+        order: record[0],
+        estimated_time,
+      });
+    }
+  } else {
+    res.status(200).json({
+      status: 200,
+      order: null,
+      employee: [],
+    });
   }
 };

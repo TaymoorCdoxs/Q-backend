@@ -60,11 +60,19 @@ exports.adminDashboardRestaurants = async (req, res, next) => {
   try {
     if (req.user.role_id == 0) {
       let restaurants = 0;
-      let query_1 =
-        "SELECT us.name as owner_name, us.email as owner_email, r.id as corporate_id, r.user_id as user_id, req.id as request_id, req.* ";
-      query_1 += "FROM `restaurants` r ";
-      query_1 += "JOIN `requests` req ON req.user_id=r.user_id ";
-      query_1 += "JOIN `users` us ON us.id=r.user_id";
+      var query_1 = "";
+      if (process.env.DB === "mysql") {
+        query_1 =
+          "SELECT us.name as owner_name, us.email as owner_email, r.id as corporate_id, r.user_id as user_id, req.id as request_id, req.* ";
+        query_1 += "FROM `restaurants` r ";
+        query_1 += "JOIN `requests` req ON req.user_id=r.user_id ";
+        query_1 += "JOIN `users` us ON us.id=r.user_id";
+      } else if (process.env.DB === "mssql") {
+        query_1 = `SELECT us.name as owner_name, us.email as owner_email, r.id as corporate_id, r.user_id as user_id, req.id as request_id, req.* FROM restaurants r JOIN requests req ON req.user_id=r.user_id JOIN users us ON us.id=r.user_id`;
+      }
+
+      //mssql
+
       restaurants = await sequelize.query(query_1, {
         type: sequelize.QueryTypes.SELECT,
       });

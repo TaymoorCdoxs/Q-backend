@@ -94,7 +94,14 @@ exports.login = async (req, res, next) => {
           user.dataValues.password
         );
         if (match) {
-          switch (user.dataValues.role_id) {
+          let user_id = "";
+          if (process.env.DB === "mssql") {
+            user_id = parseInt(user.dataValues.role_id);
+          }
+          if (process.env.DB === "mysql") {
+            user_id = user.dataValues.role_id;
+          }
+          switch (user_id) {
             case 0:
               await loginForAdmin(user, res);
               break;

@@ -6,6 +6,7 @@ const bcrypt = require("bcrypt");
 const Corporate_OrdersModel = require("../../../models/Corporate_Orders.model");
 const { Op } = require("sequelize");
 let moment = require("moment");
+const { emitUpdated } = require("../../../../config/socket");
 
 exports.createCorporateEmployees = async (req, res, next) => {
   try {
@@ -299,18 +300,25 @@ exports.editCorporateEmployees = async (req, res, next) => {
 exports.viewCorporateEmployees = async (req, res, next) => {
   try {
     const { corporate_department_id, service_id } = req.body;
-    let query =
-      " SELECT e.id as id,  e.user_id as user_id, e.max_allowed,e.panel_id as panel_id, e.corporate_panel_department_id as corporate_panel_department_id, ";
-    query +=
-      " e.speciality as speciality, ser.name as service_name, ser.id as service_id,e.education as education , u.gender as gender,u.name as name, u.email as email, u.cell as cell, ";
-    query +=
-      " e.createdAt as createdAt, e.updatedAt as updatedAt , u.address as address , u.image as image, u.device_id  as device_id FROM `employees` e";
-    query += " LEFT JOIN `users` u ON e.user_id=u.id ";
-    query += " LEFT JOIN `services` ser ON ser.id=e.service_id ";
-    query +=
-      " WHERE (e.corporate_panel_department_id=" +
-      corporate_department_id +
-      " AND u.role_id=2)";
+    var query = "";
+    if (process.env.DB === "mysql") {
+      query =
+        " SELECT e.id as id,  e.user_id as user_id, e.max_allowed,e.panel_id as panel_id, e.corporate_panel_department_id as corporate_panel_department_id, ";
+      query +=
+        " e.speciality as speciality, ser.name as service_name, ser.id as service_id,e.education as education , u.gender as gender,u.name as name, u.email as email, u.cell as cell, ";
+      query +=
+        " e.createdAt as createdAt, e.updatedAt as updatedAt , u.address as address , u.image as image, u.device_id  as device_id FROM `employees` e";
+      query += " LEFT JOIN `users` u ON e.user_id=u.id ";
+      query += " LEFT JOIN `services` ser ON ser.id=e.service_id ";
+      query +=
+        " WHERE (e.corporate_panel_department_id=" +
+        corporate_department_id +
+        " AND u.role_id=2)";
+    } else if (process.env.DB === "mssql") {
+      //In case of mssql
+      query = `SELECT e.id as id,  e.user_id as user_id, e.max_allowed,e.panel_id as panel_id, e.corporate_panel_department_id as corporate_panel_department_id, e.speciality as speciality, ser.name as service_name, ser.id as service_id,e.education as education , u.gender as gender,u.name as name, u.email as email, u.cell as cell, e.createdAt as createdAt, e.updatedAt as updatedAt , u.address as address , u.image as image, u.device_id  as device_id FROM employees e LEFT JOIN users u ON e.user_id=u.id LEFT JOIN services ser ON ser.id=e.service_id WHERE (e.corporate_panel_department_id=${corporate_department_id} AND u.role_id=2)`;
+    }
+
     let employees = await sequelize.query(query, {
       type: sequelize.QueryTypes.SELECT,
     });
@@ -454,7 +462,7 @@ exports.customersServed = async (req, res, next) => {
         },
         { type: sequelize.QueryTypes.SELECT }
       );
-      // console.log(queue)
+      updateNext(employee);
       res.status(200).json({
         status: 200,
         queue,
@@ -472,6 +480,49 @@ exports.customersServed = async (req, res, next) => {
       message: "Error while fetching Data",
       error: err.message,
     });
+  }
+};
+updateNext = async (employee) => {
+  var allWaitingOrders = await Corporate_OrdersModel.findAll({
+    where: {
+      status: { [Op.eq]: "waiting" },
+      createdAt: {
+        [Op.gt]: new Date().setHours(0, 0, 0, 0),
+        [Op.lt]: new Date(),
+      },
+    },
+    order: [["createdAt", "ASC"]],
+  });
+  if (allWaitingOrders.length > 0) {
+    let service_id = employee.dataValues.service_id;
+    var freeEmployees = await EmployeeModel.findOne({
+      where: {
+        service_id: service_id,
+        status: { [Op.eq]: 0 },
+      },
+    });
+    if (freeEmployees) {
+      let onTop = allWaitingOrders[0].dataValues;
+      // console.log(freeEmployees.dataValues);
+      let updatedEmployee = await EmployeeModel.update(
+        { status: 1 },
+        { where: { id: freeEmployees.dataValues.id } }
+      );
+      if (updatedEmployee) {
+        var updated = await Corporate_OrdersModel.update(
+          {
+            status: "working",
+            in_working: new Date(),
+            employee_id: freeEmployees.dataValues.id,
+          },
+          {
+            where: {
+              id: onTop.id,
+            },
+          }
+        );
+      }
+    }
   }
 };
 exports.customersInServing = async (req, res, next) => {
@@ -602,6 +653,8 @@ exports.moveCustomerToServed = async (req, res, next) => {
         console.log(
           "------------------------------............................"
         );
+        emitUpdated(updateTicket);
+        // appointNext();
         res.status(200).json({
           status: 200,
           message: "Customer Served",
